@@ -9,30 +9,37 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from langchain_openai import OpenAIEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 from langchain_postgres import PGVector
 
 
-def get_embeddings():
-    """
-    Escolhe o provedor de embeddings a partir do .env:
-    - Se houver OPENAI_API_KEY, usa OpenAI.
-    - Senão, se houver GOOGLE_API_KEY, usa Gemini.
-    """
+def _get_embeddings():
+    load_dotenv()
+    provider = (os.getenv("EMBEDDING_PROVIDER") or "").lower()
     openai_key = os.getenv("OPENAI_API_KEY")
     google_key = os.getenv("GOOGLE_API_KEY")
 
-    if openai_key:
-        model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
-        # Nota: nas versões recentes, OpenAIEmbeddings aceita 'api_key='
-        return OpenAIEmbeddings(model=model, api_key=openai_key)
-    elif google_key:
+    if provider == "local":
+        model_name = os.getenv("LOCAL_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        return HuggingFaceEmbeddings(model_name=model_name)
+
+    if provider == "gemini":
+        if not google_key:
+            raise RuntimeError("GOOGLE_API_KEY ausente para provider gemini")
         model = os.getenv("GOOGLE_EMBEDDING_MODEL", "models/embedding-001")
         return GoogleGenerativeAIEmbeddings(model=model, google_api_key=google_key)
-    else:
-        raise RuntimeError(
-            "Nenhuma API key encontrada. Defina OPENAI_API_KEY ou GOOGLE_API_KEY no .env"
-        )
+
+    if openai_key:
+        model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        return OpenAIEmbeddings(model=model, api_key=openai_key)
+
+    if google_key:
+        model = os.getenv("GOOGLE_EMBEDDING_MODEL", "models/embedding-001")
+        return GoogleGenerativeAIEmbeddings(model=model, google_api_key=google_key)
+
+    model_name = os.getenv("LOCAL_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    return HuggingFaceEmbeddings(model_name=model_name)
 
 
 def main():
@@ -63,7 +70,7 @@ def main():
     print(f"[ingest] Chunks gerados: {len(chunks)}")
 
     # 5) Embeddings (OpenAI ou Gemini)
-    embeddings = get_embeddings()
+    embeddings = _get_embeddings()
 
     # 6) Persistir no Postgres/pgvector usando a factory (cria/usa a coleção)
     print("[ingest] Gravando embeddings no Postgres...")
